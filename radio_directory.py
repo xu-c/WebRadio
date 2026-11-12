@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 PAGE_SIZE = 24
+ORDERS = ("clickcount", "clicktrend", "votes", "name")
 MIRROR_POOL = "all.api.radio-browser.info"
 DEFAULT_MIRRORS = ("de1.api.radio-browser.info", "nl1.api.radio-browser.info", MIRROR_POOL)
 USER_AGENT = "CardputerZero-Radio/1.0"
@@ -43,6 +44,9 @@ class Station:
     codec: str = ""
     bitrate: str = ""
     tags: str = ""
+    country_name: str = ""
+    language: str = ""
+    language_codes: str = ""
 
     @classmethod
     def parse(cls, row, saved=False):
@@ -62,9 +66,13 @@ class Station:
         resolved = stream_url(row.get("url" if saved else "url_resolved")) or original
         if not resolved:
             return None
-        return cls(uuid, label("name") or "未命名电台", resolved, original,
-                   label("country" if saved else "countrycode", 8),
-                   label("codec", 12), label("bitrate", 8), label("tags", 100))
+        return cls(
+            uuid, label("name") or "未命名电台", resolved, original,
+            label("country" if saved else "countrycode", 8).upper(),
+            label("codec", 12), label("bitrate", 8), label("tags", 512),
+            label("country_name" if saved else "country"),
+            label("language", 256), label("language_codes" if saved else "languagecodes", 120),
+        )
 
 
 @dataclass(frozen=True)
@@ -75,10 +83,24 @@ class Query:
     tag: str = ""
     order: str = "clickcount"
 
-    def parameters(self, page):
+    @classmethod
+    def from_filters(cls, value):
+        if not isinstance(value, dict):
+            return cls(country="CN")
+        country = value.get("country")
+        if not isinstance(country, str) or (country and not re.fullmatch(r"[A-Z]{2}", country)):
+            country = "CN"
+        order = value.get("order")
+        language, tag = value.get("language"), value.get("tag")
+        return cls(country=country,
+                   language=language[:80] if isinstance(language, str) else "",
+                   tag=tag[:80] if isinstance(tag, str) else "",
+                   order=order if order in ORDERS else "clickcount")
+
+    def parameters(self, page, limit=PAGE_SIZE):
         values = dict(hidebroken="true", order=self.order,
                       reverse="false" if self.order == "name" else "true",
-                      limit=PAGE_SIZE, offset=page * PAGE_SIZE)
+                      limit=limit, offset=page * PAGE_SIZE)
         for key, value in (("name", self.name), ("countrycode", self.country),
                            ("language", self.language), ("tag", self.tag)):
             if value:
@@ -115,6 +137,7 @@ class Library:
         stored = stored if isinstance(stored, dict) else {}
         volume = stored.get("volume", 45)
         self.volume = max(0, min(100, volume)) if type(volume) is int else 45
+        self.filters = Query.from_filters(stored.get("filters"))
         rows = stored.get("favorites", [])
         self.favorites = {
             station.uuid: station
@@ -122,13 +145,18 @@ class Library:
             if (station := Station.parse(row, saved=True))
         }
 
-    def save(self, favorites, volume):
+    def save(self, favorites, volume, filters=None):
+        if filters is None:
+            filters = self.filters
+        filter_data = {key: getattr(filters, key) for key in ("country", "language", "tag", "order")}
         write_json(self.path, {
             "favorites": [asdict(station) for station in favorites.values()],
             "volume": volume,
+            "filters": filter_data,
         })
         self.favorites = favorites
         self.volume = volume
+        self.filters = Query.from_filters(filter_data)
 
     def toggle(self, station):
         favorites = self.favorites.copy()
@@ -195,17 +223,24 @@ class RadioBrowser:
         raise DirectoryError("Radio Browser 暂时无法连接")
 
     def search(self, query, page, canceled, preview=None):
-        params = query.parameters(page)
-        cache_key = hashlib.sha256(params.encode()).hexdigest()[:24]
-        path = self.cache_dir / (cache_key + ".json")
+        params = query.parameters(page, PAGE_SIZE + 1)
 
-        def parse(rows, cached):
-            stations = {station.uuid: station for row in rows
+        def cache_path(parameters):
+            key = hashlib.sha256(parameters.encode()).hexdigest()[:24]
+            return self.cache_dir / (key + ".json")
+
+        def parse(rows, cached, legacy=False):
+            stations = {station.uuid: station for row in rows[:PAGE_SIZE]
                         if (station := Station.parse(row))}
-            return list(stations.values()), len(rows) >= PAGE_SIZE, cached
+            more = len(rows) >= PAGE_SIZE if legacy else len(rows) > PAGE_SIZE
+            return list(stations.values()), more, cached
 
+        path = cache_path(params)
         cached_rows = read_json(path, None)
-        cached = parse(cached_rows, True) if isinstance(cached_rows, list) else None
+        legacy = not isinstance(cached_rows, list)
+        if legacy:
+            cached_rows = read_json(cache_path(query.parameters(page)), None)
+        cached = parse(cached_rows, True, legacy) if isinstance(cached_rows, list) else None
         if preview and cached and cached[0] and not canceled():
             preview(cached)
         try:

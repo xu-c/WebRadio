@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 NAME = "cardputer-zero-radio"
-VERSION = "1.0.1"
+VERSION = "1.0.3"
 SHARE = f"usr/share/{NAME}"
 LAUNCHER = "usr/share/APPLaunch"
 ICON = f"{LAUNCHER}/share/images/{NAME}.png"
@@ -18,11 +18,16 @@ ICON = f"{LAUNCHER}/share/images/{NAME}.png"
 def radio_icon():
     image = Image.new("RGBA", (128, 128))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((0, 0, 127, 127), 29, fill="#18282f")
-    draw.arc((22, 24, 106, 107), 211, 329, fill="#83f0d0", width=6)
-    draw.arc((35, 39, 93, 95), 212, 328, fill="#83f0d0", width=6)
-    draw.ellipse((58, 60, 70, 72), fill="#83f0d0")
-    draw.line((42, 93, 86, 93), fill="#ffcf78", width=5)
+    ink, mint, amber = "#18282f", "#83f0d0", "#ffcf78"
+    draw.rounded_rectangle((0, 0, 127, 127), 28, fill=ink)
+    draw.line((33, 49, 83, 23), fill=mint, width=6)
+    draw.ellipse((79, 19, 87, 27), fill=mint)
+    draw.rounded_rectangle((16, 44, 111, 105), 12, fill=mint)
+    for y in (59, 68, 77, 86):
+        draw.rounded_rectangle((28, y, 58, y + 4), 2, fill=ink)
+    draw.rounded_rectangle((67, 54, 102, 93), 7, fill=ink)
+    draw.ellipse((73, 62, 96, 85), fill=amber)
+    draw.line((84, 73, 90, 67), fill=ink, width=3)
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()

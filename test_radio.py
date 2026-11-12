@@ -4,14 +4,15 @@ import tarfile
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from build_package import tar_gz
-from radio_directory import Library, Query, RadioBrowser, Station, Superseded
+from radio_directory import PAGE_SIZE, Library, Query, RadioBrowser, Station, Superseded
 from radio_player import PlaybackError, Player
-from radio_ui import RadioApp
+from radio_ui import RadioApp, station_attributes
 
 STATION = Station("01234567-89ab-cdef-0123-456789abcdef", "Test Radio",
                   "https://example.com/resolved", "https://example.com/original")
@@ -69,13 +70,32 @@ class DirectoryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
             library = Library(path)
+            self.assertEqual(library.filters, Query(country="CN"))
             self.assertTrue(library.toggle(STATION))
-            library.save(library.favorites, 30)
+            library.save(library.favorites, 30, Query("search text", "", "english", "news", "name"))
             saved = Library(path)
             self.assertEqual(list(saved.favorites.values()), [STATION])
             self.assertEqual(saved.volume, 30)
+            self.assertEqual(saved.filters, Query(language="english", tag="news", order="name"))
             self.assertFalse(saved.toggle(STATION))
             self.assertFalse(Library(path).favorites)
+            self.assertEqual(Library(path).filters, saved.filters)
+
+    def test_lookahead_and_station_metadata(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(RadioBrowser, "discover"):
+            directory = RadioBrowser(Path(temp))
+            rows = [dict(STATION_RESPONSE[0], stationuuid=f"{index:08x}-0000-0000-0000-000000000000",
+                         countrycode="FR", language="french", tags="jazz,news")
+                    for index in range(PAGE_SIZE + 1)]
+            with patch.object(directory, "request", side_effect=[rows, rows[:-1]]) as request:
+                stations, more, _ = directory.search(Query(), 0, lambda: False)
+                self.assertTrue(more)
+                self.assertEqual(len(stations), PAGE_SIZE)
+                self.assertEqual(station_attributes(stations[0]), (("法国",), ("法语",), ("爵士", "新闻")))
+                self.assertFalse(directory.search(Query(), 1, lambda: False)[1])
+                params = parse_qs(urlsplit(request.call_args.args[0]).query)
+                self.assertEqual(params["limit"], [str(PAGE_SIZE + 1)])
+                self.assertEqual(params["offset"], [str(PAGE_SIZE)])
 
 
 class PlayerTest(unittest.TestCase):
@@ -125,28 +145,78 @@ class InteractionTest(unittest.TestCase):
             app = RadioApp(None, Library(path), demo=True)
             try:
                 self.wait_for_results(app)
-                app.handle("/")
+                self.assertTrue(all(station.country == "CN" for station in app.rows()))
+                app.handle("5")
+                app.handle("4")
+                app.handle("7")
+                self.wait_for_results(app)
+                app.handle("4")
                 for char in "Jazz":
                     app.handle(char, char)
                 app.handle("enter")
                 self.wait_for_results(app)
                 self.assertEqual(len(app.rows()), 2)
-                app.handle("f")
-                app.handle("e")
+                app.handle("5")
+                app.handle("6")
                 for char in "us":
                     app.handle(char, char)
                 app.handle("enter")
-                app.handle("enter")
+                app.handle("7")
                 self.wait_for_results(app)
                 self.assertEqual([s.name for s in app.rows()], ["Jazz24"])
                 app.handle("enter")
-                app.handle("s")
-                app.handle("2")
+                app.handle("6")
+                app.handle("7")
                 self.assertEqual(app.selected(), app.station)
-                app.handle("s")
+                app.handle("6")
                 self.assertIsNone(app.selected())
                 self.assertEqual(app.station.name, "Jazz24")
                 app.handle("space")
                 self.assertIsNone(app.station)
             finally:
                 app.close()
+
+    def test_zero_keys_page_boundaries_details_and_volume(self):
+        class Directory:
+            def search(self, query, page, canceled, preview):
+                rows = [replace(STATION, uuid=f"{page}-{i}", name=f"Station {page}-{i}")
+                        for i in range(2)]
+                return rows, page == 0, False
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            app = RadioApp(Directory(), Library(path))
+            try:
+                self.wait_for_results(app)
+                app.handle("x")
+                self.assertEqual(app.selected().name, "Station 0-1")
+                app.handle("x")
+                self.wait_for_results(app)
+                self.assertEqual((app.page, app.selected().name), (1, "Station 1-0"))
+                app.handle("f")
+                self.wait_for_results(app)
+                self.assertEqual((app.page, app.selected().name), (0, "Station 0-1"))
+                app.handle("c")
+                self.wait_for_results(app)
+                app.handle("z")
+                self.wait_for_results(app)
+                self.assertEqual((app.page, app.selected().name), (0, "Station 0-0"))
+                app.handle("i")
+                self.assertEqual(app.detail_station, app.selected())
+                app.handle("8")
+                app.handle("8")
+                app.handle("c")
+                app.handle("5")
+                app.handle("z")
+                app.handle("8")
+                self.assertEqual(app.volume, 50)
+                self.assertEqual(app.modal, "")
+                app.handle("5")
+                app.handle("x")
+                self.assertEqual(app.filter_row, 1)
+                app.handle("c")
+                app.handle("7")
+                self.assertEqual(Library(path).filters.language, "chinese")
+            finally:
+                app.close()
+            self.assertEqual(Library(path).volume, 50)

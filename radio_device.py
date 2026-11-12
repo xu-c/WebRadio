@@ -135,7 +135,8 @@ class Keyboard:
                 continue
             if key == "esc":
                 key = "escape"
-            if event.value == 2 and key in ("escape", "enter", "tab", "s", "space"):
+            if event.value == 2 and key in ("escape", "enter", "tab", "s", "space",
+                                            "4", "5", "6", "7", "8"):
                 # Repeated letters and spaces are still valid in a text field.
                 repeat = True
             else:
