@@ -294,8 +294,14 @@ class RadioApp:
             return
         key = DIRECTIONS.get(key, key)
         if self.modal == "help":
-            if key in ("8", "escape", "enter", "h", "?"):
+            if key == "7":
+                self.modal = "about"
+            elif key in ("8", "escape", "enter", "h", "?"):
                 self.modal = ""
+            return
+        if self.modal == "about":
+            if key in ("8", "escape", "enter"):
+                self.modal = "help"
             return
         if self.modal == "volume":
             if key in ("left", "down", "4", "-"):
@@ -445,6 +451,14 @@ class Screen:
                     "Esc   关闭面板／退出应用",
                 )):
                     text(9, 33 + i * 20, line, 12)
+                softkeys(("", "", "", "应用说明", "返回"))
+            elif app.modal == "about":
+                text(9, 6, "应用说明", 16, TEAL)
+                text(9, 36, "电台目录数据来自 Radio Browser。")
+                text(9, 54, "https://www.radio-browser.info/", 12, TEAL)
+                text(9, 78, "节目由各电台提供，作者不对电台内容负责。")
+                text(9, 102, "使用时请遵守 Radio Browser 的使用规则")
+                text(9, 120, "以及你所在地的法律法规。")
                 softkeys(("", "", "", "", "返回"))
             elif app.modal == "filter":
                 text(9, 6, "筛选电台", 16, TEAL)
@@ -514,6 +528,8 @@ class Screen:
             text(x + 11, 6, label, 12, TEAL if app.tab == i else SUB)
         if app.demo:
             text(208, 7, "演示", 11, GOLD)
+        else:
+            text(208, 7, "H 帮助", 11, SUB)
         text(311, 7, f"音量 {app.volume}%", 11, SUB, anchor="rt")
 
         rows = app.rows()

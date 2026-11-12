@@ -4,11 +4,11 @@
 
 ## 在 Cardputer Zero 上安装
 
-用 `python build_package.py` 生成安装包。把 `dist/cardputer-zero-radio_1.0.3_all.deb` 复制到已联网的 Cardputer Zero，在设备上进入安装包所在目录，执行：
+用 `python build_package.py` 生成安装包。把 `dist/cardputer-zero-radio_1.0.4_all.deb` 复制到已联网的 Cardputer Zero，在设备上进入安装包所在目录，执行：
 
 ```sh
 sudo apt update
-sudo apt install --no-install-recommends ./cardputer-zero-radio_1.0.3_all.deb
+sudo apt install --no-install-recommends ./cardputer-zero-radio_1.0.4_all.deb
 ```
 
 安装后，在 Cardputer Zero 的应用启动器里打开 **WebRadio**。旧版 Radio 可以直接升级，收藏和音量设置会保留。若使用自定义系统镜像，可用 `cardputer-zero-radio --framebuffer /dev/fb0 --keyboard /dev/input/eventX` 指定设备。画面倒置时加 `--rotate`。
@@ -28,7 +28,7 @@ sudo apt install --no-install-recommends ./cardputer-zero-radio_1.0.3_all.deb
 | 8 | 打开音量页。Z / C 或 4 / 5 调节音量，8 返回 |
 | I | 查看选中电台的国家／地区、语言和全部类型标签 |
 | R | 刷新当前目录页 |
-| H | 查看按键说明 |
+| H | 查看按键帮助。在帮助页按 7 查看应用说明 |
 | Esc | 关闭当前面板。位于列表时退出应用 |
 
 设备上可直接输入英文台名、频率或呼号，也可以用「中文／普通话／粤语」等语言预设缩小范围。界面和电台名支持中文显示。实体键盘输入目前使用英文字母、数字和符号，桌面预览可以用 Ctrl+V 粘贴中文关键词。

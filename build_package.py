@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 NAME = "cardputer-zero-radio"
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 SHARE = f"usr/share/{NAME}"
 LAUNCHER = "usr/share/APPLaunch"
 ICON = f"{LAUNCHER}/share/images/{NAME}.png"
