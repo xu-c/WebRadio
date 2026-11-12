@@ -139,6 +139,33 @@ class InteractionTest(unittest.TestCase):
             time.sleep(0.01)
         self.assertFalse(app.loading)
 
+    def test_interface_language_switch_persists_without_changing_filters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            library = Library(path)
+            filters = Query(country="FR", language="french")
+            library.save({STATION.uuid: STATION}, 35, filters)
+            app = RadioApp(None, library, demo=True)
+            try:
+                self.assertEqual(library.interface_language, "zh")
+                app.handle("h")
+                app.handle("6")
+                app.handle("5")
+                stored = Library(path)
+                self.assertEqual(stored.interface_language, "en")
+                self.assertEqual(stored.filters, filters)
+                self.assertEqual(stored.volume, 35)
+                self.assertEqual(stored.favorites, {STATION.uuid: STATION})
+                app.handle("8")
+                app.handle("7")
+                self.assertEqual(app.modal, "about")
+                app.handle("8")
+                app.handle("6")
+                app.handle("4")
+                self.assertEqual(Library(path).interface_language, "zh")
+            finally:
+                app.close()
+
     def test_search_filter_and_favorites_with_playback_active(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

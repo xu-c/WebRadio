@@ -138,6 +138,7 @@ class Library:
         volume = stored.get("volume", 45)
         self.volume = max(0, min(100, volume)) if type(volume) is int else 45
         self.filters = Query.from_filters(stored.get("filters"))
+        self.interface_language = "en" if stored.get("interface_language") == "en" else "zh"
         rows = stored.get("favorites", [])
         self.favorites = {
             station.uuid: station
@@ -145,18 +146,22 @@ class Library:
             if (station := Station.parse(row, saved=True))
         }
 
-    def save(self, favorites, volume, filters=None):
+    def save(self, favorites, volume, filters=None, interface_language=None):
         if filters is None:
             filters = self.filters
+        if interface_language is None:
+            interface_language = self.interface_language
         filter_data = {key: getattr(filters, key) for key in ("country", "language", "tag", "order")}
         write_json(self.path, {
             "favorites": [asdict(station) for station in favorites.values()],
             "volume": volume,
             "filters": filter_data,
+            "interface_language": interface_language,
         })
         self.favorites = favorites
         self.volume = volume
         self.filters = Query.from_filters(filter_data)
+        self.interface_language = interface_language
 
     def toggle(self, station):
         favorites = self.favorites.copy()

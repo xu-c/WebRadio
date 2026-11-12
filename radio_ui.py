@@ -31,6 +31,27 @@ ORDER_TITLES = {"clickcount": "热门电台", "clicktrend": "近期热门",
 LANGUAGE_CODES = {"zh": "中文", "cmn": "普通话", "yue": "粤语", "en": "英语",
                   "ja": "日语", "fr": "法语", "de": "德语"}
 COUNTRIES, LANGUAGES, TAGS = (dict(values) for _, _, values in FILTERS[:3])
+ENGLISH_LABELS = {
+    "全部": "All", "中国大陆": "Mainland China", "台湾": "Taiwan", "香港": "Hong Kong",
+    "澳门": "Macao", "日本": "Japan", "美国": "United States", "英国": "United Kingdom",
+    "德国": "Germany", "法国": "France", "中文": "Chinese", "普通话": "Mandarin",
+    "粤语": "Cantonese", "英语": "English", "日语": "Japanese", "法语": "French",
+    "德语": "German", "新闻": "News", "流行": "Pop", "爵士": "Jazz",
+    "古典": "Classical", "谈话": "Talk", "氛围": "Ambient", "收听最多": "Most played",
+    "近期热门": "Trending", "票数最多": "Most votes", "台名 A–Z": "Station name A–Z",
+    "热门电台": "Popular", "按票数": "By votes", "按台名": "By name",
+    "国家／地区": "Country / region", "语言": "Language", "类型": "Genre", "排序": "Sort",
+    "离线缓存": "Offline cache", "Radio Browser 暂时无法连接": "Radio Browser unavailable",
+    "无法保存音量": "Could not save volume", "无法保存收藏": "Could not save favorites",
+    "无法保存语言": "Could not save language",
+    "筛选已应用 · 无法保存": "Filters applied · Could not save",
+    "已收藏": "Saved to favorites", "已取消收藏": "Removed from favorites",
+    "请输入两位国家代码，例如 CN": "Enter a two-letter country code, e.g. CN.",
+    "尚未播放": "Not playing", "已停止": "Stopped", "正在连接": "Connecting",
+    "缓冲中": "Buffering", "播放中": "Playing", "播放中 · 演示": "Playing · Demo",
+    "连接失败 · Enter 重试": "Failed · Enter retry", "当前环境需要 Linux 和 mpv": "Needs Linux + mpv",
+    "未命名电台": "Unnamed station",
+}
 
 DEMO_STATIONS = [
     Station(f"0a000000-0000-4000-8000-{index:012}", name, "https://example.com/radio",
@@ -84,6 +105,7 @@ class RadioApp:
         self.filter_row = 0
         self.input = ""
         self.input_error = ""
+        self.language_error = ""
         self.detail_station = None
         self.detail_scroll = 0
         self.toast = ""
@@ -262,6 +284,13 @@ class RadioApp:
         self.show_query(self.draft)
         self.modal = ""
 
+    def set_interface_language(self, language):
+        try:
+            self.library.save(self.library.favorites, self.volume, interface_language=language)
+            self.language_error = ""
+        except OSError:
+            self.language_error = "无法保存语言"
+
     def edit(self, key, char, clear):
         if key == "escape":
             self.modal = "filter" if self.modal == "filter_text" else ""
@@ -296,11 +325,22 @@ class RadioApp:
         if self.modal == "help":
             if key == "7":
                 self.modal = "about"
+            elif key == "6":
+                self.modal = "language"
+                self.language_error = ""
             elif key in ("8", "escape", "enter", "h", "?"):
                 self.modal = ""
             return
         if self.modal == "about":
             if key in ("8", "escape", "enter"):
+                self.modal = "help"
+            return
+        if self.modal == "language":
+            if key in ("4", "left"):
+                self.set_interface_language("zh")
+            elif key in ("5", "right"):
+                self.set_interface_language("en")
+            elif key in ("8", "escape", "enter"):
                 self.modal = "help"
             return
         if self.modal == "volume":
@@ -408,6 +448,19 @@ class Screen:
     def render(self, app):
         image = Image.new("RGB", SIZE, BG)
         draw = ImageDraw.Draw(image)
+        english = app.library.interface_language == "en"
+        separator = ", " if english else "、"
+
+        def t(chinese, english_text=None):
+            if not english:
+                return chinese
+            if english_text is not None:
+                return english_text
+            if chinese.startswith("音量 "):
+                return "Volume " + chinese.removeprefix("音量 ")
+            if chinese.startswith("重连 "):
+                return "Retry " + chinese.removeprefix("重连 ").replace(" 秒", "s")
+            return ENGLISH_LABELS.get(chinese, chinese)
 
         def text(x, y, value, size=12, color=TEXT, width=300, anchor="lt"):
             font = self.fonts[size]
@@ -426,15 +479,24 @@ class Screen:
             draw.line((0, 146, 319, 146), fill=SELECT)
             for key, x, label in zip("45678", (48, 104, 160, 216, 272), labels):
                 if label:
-                    text(x, 149, label, 12, TEAL, 54, "mt")
+                    size = next((size for size in (12, 11) if
+                                 draw.textlength(label, font=self.fonts[size]) <= 54), 10)
+                    text(x, 149, label, size, TEAL, 54, "mt")
                     text(x, 162, key, 10, SUB, 54, "mt")
 
         def wrap(value, width, size):
             line = ""
             for char in value:
                 if line and draw.textlength(line + char, font=self.fonts[size]) > width:
-                    yield line.rstrip()
-                    line = ""
+                    split = line.rfind(" ") if english else -1
+                    if split > 0:
+                        yield line[:split].rstrip()
+                        line = line[split + 1:]
+                    else:
+                        yield line.rstrip()
+                        line = ""
+                    if not line and char == " ":
+                        continue
                 line += char
             if line:
                 yield line
@@ -442,66 +504,91 @@ class Screen:
         if app.modal:
             draw.rectangle((0, 0, 319, 27), fill=PANEL)
             if app.modal == "help":
-                text(9, 6, "按键说明", 16, TEAL)
+                text(9, 6, t("按键说明", "Controls"), 16, TEAL)
                 for i, line in enumerate((
-                    "F / X   上下选台，越过页尾或页首时翻页",
-                    "Z / C   上一页／下一页     I   电台详情",
-                    "Enter   播放／停止     R   刷新目录",
-                    "4 搜索   5 筛选   6 收藏   7 切换   8 音量",
-                    "Esc   关闭面板／退出应用",
+                    t("F / X   上下选台，越过页尾或页首时翻页",
+                      "F / X   Select station or cross page boundary"),
+                    t("Z / C   上一页／下一页     I   电台详情",
+                      "Z / C   Previous / next page     I   Details"),
+                    t("Enter   播放／停止     R   刷新目录",
+                      "Enter   Play / stop     R   Refresh"),
+                    t("4 搜索   5 筛选   6 收藏   7 切换   8 音量",
+                      "4 Search   5 Filter   6 Save   7 View   8 Vol"),
+                    t("Esc   关闭面板／退出应用", "Esc   Back / quit"),
                 )):
                     text(9, 33 + i * 20, line, 12)
-                softkeys(("", "", "", "应用说明", "返回"))
+                softkeys(("", "", t("语言", "Language"), t("应用说明", "About"), t("返回", "Back")))
             elif app.modal == "about":
-                text(9, 6, "应用说明", 16, TEAL)
-                text(9, 36, "电台目录数据来自 Radio Browser。")
+                text(9, 6, t("应用说明", "About WebRadio"), 16, TEAL)
+                text(9, 36, t("电台目录数据来自 Radio Browser。", "Station directory data comes from Radio Browser."))
                 text(9, 54, "https://www.radio-browser.info/", 12, TEAL)
-                text(9, 78, "节目由各电台提供，作者不对电台内容负责。")
-                text(9, 102, "使用时请遵守 Radio Browser 的使用规则")
-                text(9, 120, "以及你所在地的法律法规。")
-                softkeys(("", "", "", "", "返回"))
+                for y, paragraph in (
+                    (75, t("节目由各电台提供，作者不对电台内容负责。",
+                           "Stations provide their own programming. The author is not responsible for station content.")),
+                    (111, t("使用时请遵守 Radio Browser 的使用规则以及你所在地的法律法规。",
+                            "Follow the Radio Browser rules and the laws that apply where you use the app.")),
+                ):
+                    for i, line in enumerate(wrap(paragraph, 299, 12)):
+                        text(9, y + i * 15, line)
+                softkeys(("", "", "", "", t("返回", "Back")))
+            elif app.modal == "language":
+                text(9, 6, t("界面语言", "Interface language"), 16, TEAL)
+                for i, (code, label) in enumerate((("zh", "简体中文"), ("en", "English"))):
+                    y = 39 + i * 33
+                    selected = app.library.interface_language == code
+                    box((8, y, 311, y + 27), SELECT if selected else PANEL)
+                    text(16, y + 7, label, 13)
+                    if selected:
+                        text(302, y + 8, t("当前", "Current"), 11, TEAL, anchor="rt")
+                if app.language_error:
+                    text(9, 115, t(app.language_error), 11, GOLD)
+                softkeys(("中文", "English", "", "", t("返回", "Back")))
             elif app.modal == "filter":
-                text(9, 6, "筛选电台", 16, TEAL)
-                text(311, 9, "F/X 选择 · Z/C 切换", 11, SUB, anchor="rt")
+                text(9, 6, t("筛选电台", "Station filters"), 16, TEAL)
+                text(311, 9, t("F/X 选择 · Z/C 切换", "F/X Select · Z/C Change"),
+                     11, SUB, anchor="rt")
                 for i, (field, title, values) in enumerate(FILTERS):
                     y = 33 + i * 26
                     active = app.filter_row == i
                     box((7, y, 312, y + 23), SELECT if active else PANEL)
                     current = getattr(app.draft, field)
-                    value = dict(values).get(current, current)
-                    text(14, y + 5, title, 12, TEAL if active else SUB)
+                    labels = dict(values)
+                    value = t(labels[current]) if current in labels else current
+                    text(14, y + 5, t(title), 12, TEAL if active else SUB)
                     text(303, y + 5, f"‹  {value}  ›" if active else value,
                          12, TEXT, 205, "rt")
-                softkeys(("清空", "默认", "自定义" if app.filter_row < 3 else "", "应用", "取消"))
+                softkeys((t("清空", "Clear"), t("默认", "Default"),
+                          t("自定义", "Custom") if app.filter_row < 3 else "",
+                          t("应用", "Apply"), t("取消", "Cancel")))
             elif app.modal == "volume":
-                text(9, 6, "音量", 16, TEAL)
+                text(9, 6, t("音量", "Volume"), 16, TEAL)
                 text(160, 46, f"{app.volume}%", 28, TEXT, anchor="mt")
                 box((30, 89, 289, 101), SELECT, 6)
                 if app.volume:
                     box((30, 89, 30 + round(259 * app.volume / 100), 101), TEAL, 6)
-                text(160, 115, "Z / C 或 4 / 5 调节", 12, SUB, anchor="mt")
-                softkeys(("音量−", "音量+", "", "", "返回"))
+                text(160, 115, t("Z / C 或 4 / 5 调节", "Z / C or 4 / 5 to adjust"), 12, SUB, anchor="mt")
+                softkeys((t("音量−", "Vol −"), t("音量+", "Vol +"), "", "", t("返回", "Back")))
             elif app.modal == "details":
-                text(9, 6, "电台详情", 16, TEAL)
+                text(9, 6, t("电台详情", "Station details"), 16, TEAL)
                 station = app.detail_station
-                lines = list(wrap(station.name, 300, 12))
+                lines = list(wrap(station.name if station.name != "未命名电台" else t(station.name), 300, 12))
                 for (_, label, _), values in zip(FILTERS[:3], station_attributes(station)):
-                    lines.extend(wrap(f"{label}　{'、'.join(values)}", 300, 12))
+                    lines.extend(wrap(f"{t(label)}   {separator.join(map(t, values))}", 300, 12))
                 limit = 6
                 app.detail_scroll = min(app.detail_scroll, max(len(lines) - limit, 0))
                 for i, line in enumerate(lines[app.detail_scroll:app.detail_scroll + limit]):
                     text(9, 33 + i * 16, line, 12)
                 if len(lines) > limit:
-                    text(311, 132, "F/X 滚动", 11, SUB, anchor="rt")
-                softkeys(("", "", "", "", "返回"))
+                    text(311, 132, t("F/X 滚动", "F/X Scroll"), 11, SUB, anchor="rt")
+                softkeys(("", "", "", "", t("返回", "Back")))
             else:
                 field = FILTERS[app.filter_row][0] if app.modal == "filter_text" else ""
-                title = FILTERS[app.filter_row][1] if field else "搜索电台"
+                title = t(FILTERS[app.filter_row][1]) if field else t("搜索电台", "Search stations")
                 text(9, 6, title, 16, TEAL)
-                hint = {"country": "两位国家代码，例如 CN、JP、GB",
-                        "language": "输入目录语言，例如 mandarin 或 english",
-                        "tag": "输入完整标签，例如 jazz 或 news"}.get(
-                            field, "输入电台名称，支持部分匹配")
+                hint = {"country": t("两位国家代码，例如 CN、JP、GB", "Two-letter country code, e.g. CN, JP or GB."),
+                        "language": t("输入目录语言，例如 mandarin 或 english", "Language, e.g. mandarin or english."),
+                        "tag": t("输入完整标签，例如 jazz 或 news", "Exact tag, e.g. jazz or news.")}.get(
+                            field, t("输入电台名称，支持部分匹配", "Enter all or part of a station name."))
                 text(9, 39, hint, 12, SUB)
                 box((8, 61, 311, 89), SELECT)
                 font = self.fonts[14]
@@ -510,8 +597,9 @@ class Screen:
                     value = value[1:]
                 text(16, 68, value + "▏", 14)
                 if app.input_error:
-                    text(9, 100, app.input_error, 12, GOLD)
-                text(9, 151, "Enter 确认   Ctrl+U 清空   Esc 取消", 11, TEAL)
+                    text(9, 100, t(app.input_error), 12, GOLD)
+                text(9, 151, t("Enter 确认   Ctrl+U 清空   Esc 取消",
+                               "Enter Confirm   Ctrl+U Clear   Esc Cancel"), 11, TEAL)
             return image
 
         draw.rectangle((0, 0, 319, 24), fill=PANEL)
@@ -522,27 +610,29 @@ class Screen:
         draw.ellipse((17, 12, 21, 16), fill=PANEL)
         draw.point((20, 13), fill=GOLD)
         text(28, 6, "WebRadio", 13)
-        for i, (x, label) in enumerate(((97, "发现"), (150, "收藏"))):
+        for i, (x, label) in enumerate(((97, t("发现", "Browse")), (150, t("收藏", "Saved")))):
             if app.tab == i:
                 box((x, 3, x + 48, 21), SELECT)
-            text(x + 11, 6, label, 12, TEAL if app.tab == i else SUB)
+            text(x + 24, 6, label, 12, TEAL if app.tab == i else SUB, 46, "mt")
         if app.demo:
-            text(208, 7, "演示", 11, GOLD)
+            text(208, 7, t("演示", "Demo"), 11, GOLD)
         else:
-            text(208, 7, "H 帮助", 11, SUB)
-        text(311, 7, f"音量 {app.volume}%", 11, SUB, anchor="rt")
+            text(208, 7, t("H 帮助", "H Help"), 11, SUB)
+        text(311, 7, t(f"音量 {app.volume}%", f"Vol {app.volume}%"), 11, SUB, anchor="rt")
 
         rows = app.rows()
         if app.tab:
-            title, pagination = "已收藏电台", f"{len(rows)} 台"
+            title = t("已收藏电台", "Saved stations")
+            pagination = t(f"{len(rows)} 台", f"{len(rows)} {'station' if len(rows) == 1 else 'stations'}")
         else:
-            order = ORDER_TITLES[app.query.order]
-            area = COUNTRIES.get(app.query.country, app.query.country)
-            title = f"搜索：{app.query.name}" if app.query.name else (
+            order = t(ORDER_TITLES[app.query.order])
+            area = t(COUNTRIES[app.query.country]) if app.query.country in COUNTRIES and app.query.country else app.query.country
+            title = t(f"搜索：{app.query.name}", f"Search: {app.query.name}") if app.query.name else (
                 f"{area} · {order}" if area else order)
-            page_parts = (["Z 上一页"] if app.page else []) + [f"第 {app.page + 1} 页"]
+            page = app.page + 1
+            page_parts = ([t("Z 上一页", "Z Prev")] if app.page else []) + [t(f"第 {page} 页", f"Page {page}")]
             if app.more:
-                page_parts.append("C 下一页")
+                page_parts.append(t("C 下一页", "C Next"))
             pagination = " · ".join(page_parts)
         text(9, 28, title, 12, TEXT, 151)
         text(311, 29, pagination, 11, SUB, 151, "rt")
@@ -567,40 +657,43 @@ class Screen:
                               (x - 1, y + 7)), fill=GOLD)
             if not playing and not favorite:
                 draw.point((16, y + 9), fill=SUB)
-            text(33, y + 2, station.name, 12, TEXT, 274)
+            text(33, y + 2, station.name if station.name != "未命名电台" else t(station.name), 12, TEXT, 274)
             country, languages, tags = station_attributes(station)
-            text(33, y + 15, country[0], 10, SUB, 66)
-            text(104, y + 15, "·", 10, SUB)
-            text(115, y + 15, "、".join(languages), 10, SUB, 78)
-            text(199, y + 15, "·", 10, SUB)
-            text(210, y + 15, "、".join(tags), 10, SUB, 96)
+            text(33, y + 15, t(country[0]), 10, SUB, 79)
+            text(115, y + 15, "·", 10, SUB)
+            text(125, y + 15, separator.join(map(t, languages)), 10, SUB, 80)
+            text(209, y + 15, "·", 10, SUB)
+            text(219, y + 15, separator.join(map(t, tags)), 10, SUB, 87)
 
         if not rows:
             if app.tab:
-                empty = "在发现页选中电台，按 6 收藏"
+                empty = t("在发现页选中电台，按 6 收藏", "Select a station in Browse and press 6.")
             elif app.loading:
-                empty = "正在查询 Radio Browser…"
+                empty = t("正在查询 Radio Browser…", "Searching Radio Browser…")
             elif app.directory_status and app.directory_status != "离线缓存":
-                empty = "连接失败，按 R 重试或切到收藏"
+                empty = t("连接失败，按 R 重试或切到收藏", "Offline. Press R to retry or 7 for saved stations.")
             else:
-                empty = "没有匹配的电台，试试调整搜索或筛选"
+                empty = t("没有匹配的电台，试试调整搜索或筛选", "No matches. Change the search or filters.")
             text(9, 69, empty, 13, SUB)
 
         status = app.toast or (
-            "正在更新目录…" if app.loading and not app.tab and rows else
+            t("正在更新目录…", "Refreshing directory…") if app.loading and not app.tab and rows else
             app.directory_status if not app.tab and rows else "")
         if status:
-            text(9, 130, status, 11, TEAL if app.toast else SUB, 246)
+            text(9, 130, t(status), 11, TEAL if app.toast else SUB, 246)
         elif app.station:
             draw.ellipse((9, 132, 13, 136),
                          fill=TEAL if app.play_status.startswith("播放中") else GOLD)
-            text(19, 129, app.station.name, 11, TEXT, 131)
-            text(258, 129, app.play_status, 11, SUB, 103, "rt")
+            name = app.station.name
+            text(19, 129, name if name != "未命名电台" else t(name), 11, TEXT, 131)
+            text(258, 129, t(app.play_status), 11, SUB, 103, "rt")
         else:
-            text(9, 130, "F/X 选台 · Enter 播放", 11, SUB)
+            text(9, 130, t("F/X 选台 · Enter 播放", "F/X Select · Enter Play"), 11, SUB)
         selected = app.selected()
-        text(311, 130, "I 详情" if selected else "H 帮助", 11, SUB, anchor="rt")
+        text(311, 130, t("I 详情", "I Details") if selected else t("H 帮助", "H Help"),
+             11, SUB, anchor="rt")
         saved = selected and selected.uuid in app.library.favorites
-        softkeys(("搜索", "筛选", "取消收藏" if saved else "收藏",
-                  "回发现" if app.tab else "收藏夹", "音量"))
+        softkeys((t("搜索", "Search"), t("筛选", "Filter"),
+                  t("取消收藏", "Unsave") if saved else t("收藏", "Save"),
+                  t("回发现", "Browse") if app.tab else t("收藏夹", "Saved"), t("音量", "Volume")))
         return image
