@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from radio_ui import SIZE
+from radio_ui import DIGIT_SHORTCUTS, SIZE
 
 
 class FrameInfo(ctypes.Structure):
@@ -131,10 +131,12 @@ class Keyboard:
                 else:
                     self.modifiers.discard(key)
                 continue
+            if key == "esc":
+                if event.value in (0, 1):
+                    yield "escape", "", False, False, bool(event.value)
+                continue
             if not event.value:
                 continue
-            if key == "esc":
-                key = "escape"
             if event.value == 2 and key in ("escape", "enter", "tab", "s", "space",
                                             "4", "5", "6", "7", "8"):
                 # Repeated letters and spaces are still valid in a text field.
@@ -152,7 +154,11 @@ class Keyboard:
                     "1234567890-=/,.';[]`\\", "!@#$%^&*()_+?<>\":{}~|"))
             if char and key != "space":
                 key = char.lower()
-            yield key, "" if ctrl else char, ctrl and key == "u", repeat
+            if ctrl and key == "p":
+                key = "ctrl+p"
+            elif ctrl and key in tuple(DIGIT_SHORTCUTS):
+                key = "f" + key
+            yield key, "" if ctrl else char, ctrl and key == "u", repeat, True
 
     def close(self):
         self.device.close()
@@ -168,8 +174,10 @@ def run(app, screen, framebuffer, keyboard, rotate):
                 if app.dirty:
                     display.show(screen.render(app))
                     app.dirty = False
-                for key, char, clear, repeat in keys.poll():
-                    if not repeat or app.modal in ("search", "filter_text") and char:
+                for key, char, clear, repeat, pressed in keys.poll():
+                    if key == "escape":
+                        app.escape_key(pressed)
+                    elif not repeat or app.modal in ("search", "filter_text") and char:
                         app.handle(key, char, clear)
         finally:
             keys.close()

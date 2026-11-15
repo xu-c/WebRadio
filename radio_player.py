@@ -14,7 +14,19 @@ class PlaybackError(Exception):
     pass
 
 
-def play_stream(binary, url, canceled, volume, status):
+def track_title(metadata):
+    if not isinstance(metadata, dict):
+        return ""
+    tags = {key.casefold(): " ".join(value.split())[:160] for key, value in metadata.items()
+            if isinstance(value, str)}
+    title = tags.get("icy-title") or tags.get("streamtitle") or tags.get("title", "")
+    artist = tags.get("artist", "")
+    if artist and title and artist.casefold() not in title.casefold():
+        return f"{artist} — {title}"
+    return title
+
+
+def play_stream(binary, url, canceled, volume, status, metadata):
     with tempfile.TemporaryDirectory(prefix="zero-radio-") as directory:
         endpoint = os.path.join(directory, "mpv.sock")
         process = subprocess.Popen([
@@ -43,6 +55,7 @@ def play_stream(binary, url, canceled, volume, status):
 
                 command("observe_property", 1, "time-pos")
                 command("observe_property", 2, "paused-for-cache")
+                command("observe_property", 3, "metadata")
                 last_progress = started
                 last_position = None
                 last_volume = None
@@ -79,6 +92,8 @@ def play_stream(binary, url, canceled, volume, status):
                             last_position = data
                         elif event.get("id") == 2 and data is True:
                             status("缓冲中")
+                        elif event.get("id") == 3:
+                            metadata(track_title(data))
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -90,10 +105,11 @@ def play_stream(binary, url, canceled, volume, status):
 
 
 class Player:
-    def __init__(self, volume, publish, count_play, demo=False):
+    def __init__(self, volume, publish, count_play, demo=False, publish_title=None):
         self.volume = volume
         self.publish = publish
         self.count_play = count_play
+        self.publish_title = publish_title
         self.demo = demo
         self.binary = shutil.which("mpv") if os.name != "nt" else None
         self.changed = threading.Condition()
@@ -133,6 +149,16 @@ class Player:
         last_status = None
         counted = False
         playing_since = None
+        last_title = ""
+
+        def metadata(title):
+            nonlocal last_title
+            if title == station.name:
+                title = ""
+            if not canceled.is_set() and title != last_title:
+                last_title = title
+                if self.publish_title:
+                    self.publish_title(generation, title)
 
         def status(message):
             nonlocal last_status, counted, playing_since
@@ -161,11 +187,12 @@ class Player:
         while not canceled.is_set():
             playing_since = None
             try:
-                play_stream(self.binary, urls[url_index], canceled, self.volume, status)
+                play_stream(self.binary, urls[url_index], canceled, self.volume, status, metadata)
                 return
             except (PlaybackError, OSError, ValueError):
                 if canceled.is_set():
                     return
+                metadata("")
                 if playing_since is not None and time.monotonic() - playing_since >= 30:
                     failures = 0
                 if failures == len(delays):

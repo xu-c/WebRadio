@@ -9,7 +9,8 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 NAME = "cardputer-zero-radio"
-VERSION = "1.0.5"
+VERSION = "1.0.9-1"
+ARCHITECTURE = "arm64"
 SHARE = f"usr/share/{NAME}"
 LAUNCHER = "usr/share/APPLaunch"
 ICON = f"{LAUNCHER}/share/images/{NAME}.png"
@@ -67,9 +68,9 @@ def main():
 Version: {VERSION}
 Section: sound
 Priority: optional
-Architecture: all
-Maintainer: WebRadio
-Depends: python3 (>= 3.9), python3-pil (>= 9.2), python3-evdev, fonts-noto-cjk, mpv, ca-certificates
+Architecture: {ARCHITECTURE}
+Maintainer: xu-c <3174585+xu-c@users.noreply.github.com>
+Depends: python3 (>= 3.9), python3-pil (>= 9.2), python3-evdev, python3-pypinyin, fonts-noto-cjk, mpv, ca-certificates
 Description: WebRadio for Cardputer Zero
  Find and play Radio Browser stations with keyboard search, filters and favorites.
 """
@@ -90,7 +91,7 @@ Categories=AudioVideo;Audio;
         ICON: (radio_icon(), 0o644),
         f"usr/share/doc/{NAME}/README.md": ((ROOT / "README.md").read_bytes(), 0o644),
     })
-    output = ROOT / "dist" / f"{NAME}_{VERSION}_all.deb"
+    output = ROOT / "dist" / f"{NAME}_{VERSION}_{ARCHITECTURE}.deb"
     output.parent.mkdir(exist_ok=True)
     output.write_bytes(b"!<arch>\n" + b"".join((
         ar_member("debian-binary", b"2.0\n"),

@@ -2,6 +2,7 @@ import io
 import json
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 from dataclasses import replace
@@ -10,8 +11,8 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from build_package import tar_gz
-from radio_directory import PAGE_SIZE, Library, Query, RadioBrowser, Station, Superseded
-from radio_player import PlaybackError, Player
+from radio_directory import PAGE_SIZE, Library, Query, RadioBrowser, Station, Superseded, pinyin_matches
+from radio_player import PlaybackError, Player, track_title
 from radio_ui import RadioApp, station_attributes
 
 STATION = Station("01234567-89ab-cdef-0123-456789abcdef", "Test Radio",
@@ -108,15 +109,18 @@ class PlayerTest(unittest.TestCase):
                 delays.append(seconds)
                 return False
 
-        delays, statuses, clicks, urls = [], [], [], []
-        player = Player(lambda: 45, lambda _, status: statuses.append(status), clicks.append)
+        delays, statuses, clicks, urls, titles = [], [], [], [], []
+        player = Player(lambda: 45, lambda _, status: statuses.append(status), clicks.append,
+                        publish_title=lambda _, title: titles.append(title))
         player.binary = "mpv"
 
-        def stream(_, url, _canceled, _volume, status):
+        def stream(_, url, _canceled, _volume, status, metadata):
             urls.append(url)
             if len(urls) == 1:
                 raise PlaybackError()
             status("播放中")
+            metadata(track_title({"icy-title": "Artist - Live Song", "artist": "Artist"}))
+            metadata(track_title({"icy-title": "Artist - Live Song"}))
             status("缓冲中")
             status("播放中")
 
@@ -126,6 +130,7 @@ class PlayerTest(unittest.TestCase):
             self.assertEqual(urls, [STATION.url, STATION.original])
             self.assertEqual(delays, [1])
             self.assertEqual(clicks, [STATION])
+            self.assertEqual(titles, ["Artist - Live Song"])
             self.assertEqual(statuses[-1], "播放中")
         finally:
             player.close()
@@ -138,6 +143,150 @@ class InteractionTest(unittest.TestCase):
             app.tick()
             time.sleep(0.01)
         self.assertFalse(app.loading)
+
+    def test_cancel_during_slow_search_and_start_another(self):
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        replacement = replace(STATION, name="New result")
+
+        class Directory:
+            def search(self, query, page, canceled, preview):
+                if query.name == "slow":
+                    started.set()
+                    release.wait(3)
+                    finished.set()
+                    return [STATION], False, False
+                return [replacement], False, False
+
+        with tempfile.TemporaryDirectory() as temp:
+            app = RadioApp(Directory(), Library(Path(temp)))
+            try:
+                app.show_query(Query(name="slow"))
+                self.assertTrue(started.wait(2))
+                app.search_started = time.monotonic() - 9.5
+                app.tick()
+                self.assertEqual(app.search_elapsed, 9)
+                app.search_started -= 1
+                app.tick()
+                self.assertEqual(app.search_elapsed, 10)
+                app.escape_key(True)
+                app.escape_key(False)
+                self.assertTrue(app.running)
+                self.assertTrue(app.search_canceled)
+                self.assertFalse(app.loading)
+                app.show_query(Query(name="new"))
+                self.wait_for_results(app)
+                self.assertFalse(release.is_set())
+                self.assertFalse(app.search_canceled)
+                self.assertEqual(app.results, [replacement])
+                release.set()
+                self.assertTrue(finished.wait(2))
+                app.tick()
+                self.assertEqual(app.results, [replacement])
+            finally:
+                release.set()
+                app.close()
+
+    def test_hold_escape_and_resume_only_successful_station(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            app = RadioApp(None, Library(path), demo=True)
+            try:
+                with patch("radio_ui.time.monotonic", return_value=10) as clock:
+                    app.handle("h")
+                    app.escape_key(True)
+                    clock.return_value = 11
+                    app.escape_key(False)
+                    self.assertTrue(app.running)
+                    self.assertEqual(app.modal, "")
+                    app.escape_key(True)
+                    app.escape_key(False)
+                    self.assertTrue(app.running)
+                    app.tune(STATION)
+                    app.play_event(app.play_id, "正在连接")
+                    app.tick()
+                    self.assertIsNone(Library(path).last_station)
+                    app.play_event(app.play_id, "播放中")
+                    app.tick()
+                    self.assertEqual(Library(path).last_station, STATION)
+                    app.tune(None)
+                    app.handle("q")
+                    self.assertEqual(app.station, STATION)
+                    app.escape_key(True)
+                    clock.return_value = 12.99
+                    app.tick()
+                    self.assertTrue(app.running)
+                    clock.return_value = 14
+                    app.tick()
+                    self.assertFalse(app.running)
+            finally:
+                app.close()
+
+    def test_search_scope_and_pinyin(self):
+        self.assertFalse(pinyin_matches("CNR-1 中国之声", "zgzs"))
+        self.assertTrue(pinyin_matches("CNR-1 中国之声", "zhongguozhisheng"))
+        self.assertTrue(pinyin_matches("中国之声", "zhong guo zhi sheng"))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            app = RadioApp(None, Library(path), demo=True)
+            try:
+                app.handle("4")
+                for char in "nhk":
+                    app.handle(char, char)
+                app.handle("enter")
+                self.wait_for_results(app)
+                self.assertEqual(app.query.country, "CN")
+                self.assertFalse(app.results)
+                app.handle("4")
+                app.handle("tab")
+                app.handle("enter")
+                self.wait_for_results(app)
+                self.assertEqual([s.name for s in app.results], ["NHK Radio 1"])
+                self.assertEqual(app.library.filters.country, "CN")
+                app.handle("4")
+                app.handle("ctrl+p")
+                app.handle("", clear=True)
+                for char in "shanghaidonggan":
+                    app.handle(char, char)
+                app.handle("enter")
+                self.wait_for_results(app)
+                self.assertEqual([s.name for s in app.results], ["上海动感 101"])
+            finally:
+                app.close()
+
+    def test_search_back_restores_list_and_selection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = RadioApp(None, Library(Path(temp)), demo=True)
+            try:
+                self.wait_for_results(app)
+                app.handle("down")
+                original = app.selected()
+                for reopen_input, back in ((False, "escape"), (True, "escape"),
+                                            (False, "8"), (True, "8")):
+                    app.handle("4")
+                    app.handle("4")
+                    app.handle("6")
+                    for char in "jazz":
+                        app.handle(char, char)
+                    app.handle("f4")
+                    app.handle("2", "2")
+                    self.assertEqual(app.input, "jazz42")
+                    app.handle("6")
+                    for char in "nhk":
+                        app.handle(char, char)
+                    app.handle("7")
+                    self.wait_for_results(app)
+                    self.assertEqual(app.selected().name, "NHK Radio 1")
+                    if reopen_input:
+                        app.handle("4")
+                    app.handle(back)
+                    self.assertEqual(app.modal, "")
+                    self.assertEqual(app.query, app.filters)
+                    self.assertEqual(app.selected(), original)
+                    self.assertIsNone(app.search_origin)
+            finally:
+                app.close()
 
     def test_interface_language_switch_persists_without_changing_filters(self):
         with tempfile.TemporaryDirectory() as temp:
