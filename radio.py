@@ -120,12 +120,15 @@ def main():
     try:
         screen = Screen(font_path())
         directory = None if args.demo else RadioBrowser(cache)
-        app = RadioApp(directory, Library(data), args.demo)
+        volume_control = None
+        if args.device:
+            from radio_device import run, system_volume
+
+            volume_control = system_volume
+        app = RadioApp(directory, Library(data), args.demo, system_volume=volume_control)
         signal.signal(signal.SIGTERM, lambda *_: setattr(app, "running", False))
         try:
             if args.device:
-                from radio_device import run
-
                 run(app, screen, args.framebuffer, args.keyboard, args.rotate)
             else:
                 run_preview(app, screen, args.zoom)

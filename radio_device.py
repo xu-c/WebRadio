@@ -1,16 +1,67 @@
-"""Cardputer Zero framebuffer and keyboard adapters."""
+"""Cardputer Zero display, keyboard, audio and power adapters."""
 
 import ctypes
 import mmap
 import os
+import re
 import select
 import struct
+import subprocess
+import time
 from array import array
 from pathlib import Path
 
 from PIL import Image
 
 from radio_ui import DIGIT_SHORTCUTS, SIZE
+
+
+def system_volume(step):
+    def pactl(*args):
+        try:
+            return subprocess.run(
+                ["pactl", *args], check=True, capture_output=True, text=True,
+                timeout=1, env={**os.environ, "LC_ALL": "C"},
+            ).stdout.strip()
+        except subprocess.SubprocessError as error:
+            raise OSError("Cannot access the system mixer") from error
+
+    # Use the same default output as the Cardputer Zero launcher. Pin it for this adjustment.
+    sink = pactl("get-default-sink")
+    if not sink:
+        raise ValueError("No default audio output")
+
+    def read():
+        channels = re.findall(r"/\s*(\d+)%", pactl("get-sink-volume", sink))
+        if not channels:
+            raise ValueError("No system volume in mixer response")
+        return round(sum(map(int, channels)) / len(channels))
+
+    volume = read()
+    if step:
+        target = max(0, min(100, volume + 5 * step))
+        if volume != target:
+            pactl("set-sink-volume", sink, f"{target}%")
+            volume = read()
+    return volume
+
+
+def battery_percent(power_supplies=Path("/sys/class/power_supply")):
+    # Prefer the Zero's BQ fuel gauge when more than one supply is reported.
+    supplies = sorted(power_supplies.glob("*"), key=lambda path: "bq27" not in path.name.lower())
+    for supply in supplies:
+        try:
+            if (supply / "type").read_text().strip().lower() != "battery":
+                continue
+            present = supply / "present"
+            if present.exists() and present.read_text().strip() != "1":
+                continue
+            percent = int((supply / "capacity").read_text().strip())
+        except (OSError, ValueError):
+            continue
+        if 0 <= percent <= 100:
+            return percent
+    return None
 
 
 class FrameInfo(ctypes.Structure):
@@ -169,7 +220,15 @@ def run(app, screen, framebuffer, keyboard, rotate):
     try:
         keys = Keyboard(keyboard)
         try:
+            next_battery_read = 0
             while app.running:
+                now = time.monotonic()
+                if now >= next_battery_read:
+                    next_battery_read = now + 15
+                    charge = battery_percent()
+                    if charge != app.battery:
+                        app.battery = charge
+                        app.dirty = True
                 app.tick()
                 if app.dirty:
                     display.show(screen.render(app))

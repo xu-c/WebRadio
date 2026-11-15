@@ -3,6 +3,7 @@
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from PIL import Image, ImageDraw, ImageFont
@@ -108,7 +109,7 @@ class SearchOrigin:
 
 
 class RadioApp:
-    def __init__(self, directory, library, demo=False):
+    def __init__(self, directory, library, demo=False, system_volume=None):
         self.directory = directory
         self.library = library
         self.demo = demo
@@ -139,6 +140,13 @@ class RadioApp:
         self.toast = ""
         self.toast_until = 0
         self.volume = library.volume
+        self.volume_row = 0
+        self.system_volume = None
+        self.system_volume_error = False
+        self.system_volume_control = system_volume
+        self.system_volume_worker = ThreadPoolExecutor(max_workers=1) if system_volume else None
+        self.system_volume_request = None
+        self.battery = None
         self.save_volume_at = None
         self.station = None
         self.now_playing = ""
@@ -325,6 +333,14 @@ class RadioApp:
             self.dirty = True
         if self.save_volume_at is not None and now >= self.save_volume_at:
             self.save_volume()
+        if self.system_volume_request is not None and self.system_volume_request.done():
+            try:
+                self.system_volume = self.system_volume_request.result()
+            except (OSError, ValueError):
+                self.system_volume = None
+            self.system_volume_error = self.system_volume is None
+            self.system_volume_request = None
+            self.dirty = True
 
     def save_volume(self):
         self.save_volume_at = None
@@ -367,6 +383,11 @@ class RadioApp:
         if volume != self.volume:
             self.volume = volume
             self.save_volume_at = time.monotonic() + 0.6
+
+    def request_system_volume(self, step=0):
+        if self.system_volume_worker is not None:
+            self.system_volume_error = False
+            self.system_volume_request = self.system_volume_worker.submit(self.system_volume_control, step)
 
     def apply_filters(self):
         self.filters = replace(self.draft, name="", pinyin=False)
@@ -473,10 +494,20 @@ class RadioApp:
                 self.modal = "help"
             return
         if self.modal == "volume":
-            if key in ("left", "down", "4", "-"):
+            if key in ("up", "down"):
+                self.volume_row = 0 if key == "up" else 1
+            elif key in ("left", "right"):
+                step = -1 if key == "left" else 1
+                if self.volume_row == 0:
+                    self.change_volume(step)
+                else:
+                    self.request_system_volume(step)
+            elif key in ("4", "-"):
                 self.change_volume(-1)
-            elif key in ("right", "up", "5", "+", "="):
+            elif key in ("5", "+", "="):
                 self.change_volume(1)
+            elif key in ("6", "7"):
+                self.request_system_volume(-1 if key == "6" else 1)
             elif key in ("8", "enter", "escape"):
                 self.modal = ""
             return
@@ -552,6 +583,8 @@ class RadioApp:
             self.leave_search()
         elif key in ("8", "v"):
             self.modal = "volume"
+            self.volume_row = 0
+            self.request_system_volume()
         elif key == "i" and self.selected():
             self.modal = "details"
             self.detail_station = self.selected()
@@ -578,6 +611,8 @@ class RadioApp:
             pass
         if self.save_volume_at is not None:
             self.save_volume()
+        if self.system_volume_worker is not None:
+            self.system_volume_worker.shutdown()
         self.player.close()
 
 
@@ -593,7 +628,7 @@ class Screen:
     def __init__(self, font):
         index = 2 if font.name == "NotoSansCJK-Regular.ttc" else 0
         self.fonts = {size: ImageFont.truetype(str(font), size=size, index=index)
-                      for size in (10, 11, 12, 13, 14, 16, 28)}
+                      for size in (10, 11, 12, 13, 14, 16)}
         self.background = Image.new("RGB", SIZE, BG)
         backdrop = ImageDraw.Draw(self.background)
         for y in range(SIZE[1]):
@@ -739,14 +774,28 @@ class Screen:
                           t("应用", "Apply"), t("取消", "Cancel")))
             elif app.modal == "volume":
                 modal_title(t("音量", "Volume"), GOLD)
-                box((15, 37, 304, 108), PANEL, 8, BORDER)
-                text(160, 45, f"{app.volume}%", 28, TEXT, anchor="mt")
-                for segment in range(20):
-                    x = 30 + 13 * segment
-                    color = TEAL if segment < 14 else BLUE if segment < 17 else GOLD
-                    box((x, 87, x + 11, 98), color if segment * 5 < app.volume else BORDER, 2)
-                text(160, 120, t("Z / C 或 4 / 5 调节", "Z / C or 4 / 5 to adjust"), 12, SUB, anchor="mt")
-                softkeys((t("音量−", "Vol −"), t("音量+", "Vol +"), "", "", t("返回", "Back")))
+                for index, (y, label, volume, color) in enumerate((
+                    (32, t("应用音量", "App volume"), app.volume, TEAL),
+                    (79, t("系统音量", "System volume"), app.system_volume, GOLD),
+                )):
+                    selected = index == app.volume_row
+                    box((9, y, 310, y + 42), SELECT if selected else PANEL, 6,
+                        color if selected else BORDER)
+                    text(18, y + 5, label, 12, color)
+                    text(301, y + 4, "—" if volume is None else f"{volume}%", 14, TEXT, anchor="rt")
+                    for segment in range(20):
+                        x = 18 + 14 * segment
+                        fill = color if volume is not None and segment * 5 < volume else BORDER
+                        box((x, y + 28, x + 11, y + 34), fill, 2)
+                if app.system_volume_worker is None or app.system_volume_error:
+                    hint = t("系统音量暂不可用", "System volume unavailable")
+                elif app.system_volume_request is not None:
+                    hint = t("正在获取系统音量…", "Checking system volume…")
+                else:
+                    hint = t("F / X 选择    Z / C 调节", "F / X Select    Z / C Adjust")
+                text(160, 127, hint, 11, SUB, anchor="mt")
+                softkeys((t("应用−", "App −"), t("应用+", "App +"),
+                          t("系统−", "Sys −"), t("系统+", "Sys +"), t("返回", "Back")))
             elif app.modal == "details":
                 modal_title(t("电台详情", "Station details"), BLUE)
                 station = app.detail_station
@@ -828,12 +877,15 @@ class Screen:
             text(208, 7, t("演示", "Demo"), 11, GOLD)
         else:
             text(208, 7, t("H 帮助", "H Help"), 11, SUB)
-        box((244, 4, 313, 20), "#192337", 4)
-        for i in range(3):
-            x = 250 + i * 3
-            color = TEAL if app.volume > i * 34 else BORDER
-            draw.line((x, 15, x, 13 - 2 * i), fill=color, width=2)
-        text(308, 7, t(f"音量 {app.volume}%", f"Vol {app.volume}%"), 10, TEXT, 49, "rt")
+        box((264, 4, 314, 20), "#192337", 4)
+        battery = app.battery
+        charge_color = SUB if battery is None else ROSE if battery <= 15 else TEAL
+        draw.rectangle((269, 8, 280, 16), outline=charge_color)
+        draw.line((281, 11, 281, 13), fill=charge_color)
+        if battery:
+            width = max(1, round(10 * battery / 100))
+            draw.rectangle((270, 10, 269 + width, 14), fill=charge_color)
+        text(311, 7, "—" if battery is None else f"{battery}%", 10, charge_color, anchor="rt")
 
         rows = app.rows()
         waiting = app.loading and not app.tab

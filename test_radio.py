@@ -7,10 +7,12 @@ import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from build_package import tar_gz
+from radio_device import battery_percent, system_volume
 from radio_directory import PAGE_SIZE, Library, Query, RadioBrowser, Station, Superseded, pinyin_matches
 from radio_player import PlaybackError, Player, track_title
 from radio_ui import RadioApp, station_attributes
@@ -21,6 +23,37 @@ STATION_RESPONSE = [{
     "stationuuid": STATION.uuid, "name": STATION.name, "url_resolved": STATION.url,
     "url": STATION.original,
 }]
+
+
+class DeviceStatusTest(unittest.TestCase):
+    def test_adjusts_default_output_and_reads_back_actual_volume(self):
+        with patch("radio_device.subprocess.run", side_effect=[
+            CompletedProcess([], 0, "speaker\n"),
+            CompletedProcess([], 0, "Volume: front-left: 64225 / 98% / -0.5 dB,"
+                                    " front-right: 64225 / 98% / -0.5 dB\n"),
+            CompletedProcess([], 0, ""),
+            CompletedProcess([], 0, "Volume: front-left: 65536 / 100% / 0.0 dB\n"),
+        ]) as run:
+            self.assertEqual(system_volume(1), 100)
+            self.assertEqual([call.args[0] for call in run.call_args_list], [
+                ["pactl", "get-default-sink"],
+                ["pactl", "get-sink-volume", "speaker"],
+                ["pactl", "set-sink-volume", "speaker", "100%"],
+                ["pactl", "get-sink-volume", "speaker"],
+            ])
+
+    def test_battery_prefers_fuel_gauge_and_handles_missing_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertIsNone(battery_percent(root))
+            for name, level in (("battery", "100"), ("bq27220-0", "0")):
+                supply = root / name
+                supply.mkdir()
+                (supply / "type").write_text("Battery\n")
+                (supply / "capacity").write_text(level)
+            self.assertEqual(battery_percent(root), 0)
+            (root / "bq27220-0" / "present").write_text("0\n")
+            self.assertEqual(battery_percent(root), 100)
 
 
 class PackageTest(unittest.TestCase):
@@ -361,7 +394,13 @@ class InteractionTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
-            app = RadioApp(Directory(), Library(path))
+            system_steps = []
+
+            def adjust_system(step):
+                system_steps.append(step)
+                return 70 + 5 * sum(system_steps)
+
+            app = RadioApp(Directory(), Library(path), system_volume=adjust_system)
             try:
                 self.wait_for_results(app)
                 app.handle("x")
@@ -384,6 +423,31 @@ class InteractionTest(unittest.TestCase):
                 app.handle("c")
                 app.handle("5")
                 app.handle("z")
+                app.handle("6")
+                app.handle("7")
+                app.handle("7")
+                self.assertEqual(app.system_volume_request.result(timeout=1), 75)
+                app.tick()
+                self.assertEqual(app.system_volume, 75)
+                self.assertEqual(system_steps, [0, -1, 1, 1])
+                app.handle("x")
+                self.assertEqual(app.volume_row, 1)
+                app.handle("right")
+                app.handle("z")
+                app.handle("4")
+                self.assertEqual((app.volume, app.volume_row), (45, 1))
+                app.handle("5")
+                app.handle("f")
+                self.assertEqual(app.volume_row, 0)
+                app.handle("c")
+                self.assertEqual(app.volume, 55)
+                app.handle("left")
+                app.handle("down")
+                self.assertEqual(app.volume_row, 1)
+                app.handle("up")
+                self.assertEqual(app.volume_row, 0)
+                self.assertEqual(app.system_volume_request.result(timeout=1), 75)
+                self.assertEqual(system_steps, [0, -1, 1, 1, 1, -1])
                 app.handle("8")
                 self.assertEqual(app.volume, 50)
                 self.assertEqual(app.modal, "")

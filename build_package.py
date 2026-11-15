@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 NAME = "cardputer-zero-radio"
-VERSION = "1.0.9-1"
+VERSION = "1.0.11-1"
 ARCHITECTURE = "arm64"
 SHARE = f"usr/share/{NAME}"
 LAUNCHER = "usr/share/APPLaunch"
@@ -70,7 +70,7 @@ Section: sound
 Priority: optional
 Architecture: {ARCHITECTURE}
 Maintainer: xu-c <3174585+xu-c@users.noreply.github.com>
-Depends: python3 (>= 3.9), python3-pil (>= 9.2), python3-evdev, python3-pypinyin, fonts-noto-cjk, mpv, ca-certificates
+Depends: python3 (>= 3.9), python3-pil (>= 9.2), python3-evdev, python3-pypinyin, fonts-noto-cjk, mpv, pulseaudio-utils, ca-certificates
 Description: WebRadio for Cardputer Zero
  Find and play Radio Browser stations with keyboard search, filters and favorites.
 """
