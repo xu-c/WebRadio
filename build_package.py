@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 NAME = "cardputer-zero-radio"
-VERSION = "1.0.11-1"
+VERSION = "1.0.12-1"
 ARCHITECTURE = "arm64"
 SHARE = f"usr/share/{NAME}"
 LAUNCHER = "usr/share/APPLaunch"
@@ -90,6 +90,7 @@ Categories=AudioVideo;Audio;
         f"{LAUNCHER}/applications/{NAME}.desktop": (desktop.encode(), 0o644),
         ICON: (radio_icon(), 0o644),
         f"usr/share/doc/{NAME}/README.md": ((ROOT / "README.md").read_bytes(), 0o644),
+        f"usr/share/doc/{NAME}/copyright": ((ROOT / "LICENSE").read_bytes(), 0o644),
     })
     output = ROOT / "dist" / f"{NAME}_{VERSION}_{ARCHITECTURE}.deb"
     output.parent.mkdir(exist_ok=True)

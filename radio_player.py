@@ -1,13 +1,68 @@
 """Manage a single mpv process and reconnect stalled live audio."""
 
 import json
+import math
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+import wave
+from array import array
+from pathlib import Path
+
+
+class OperationSound:
+    """Play short original tones through the shared PulseAudio output."""
+
+    def __init__(self):
+        self.binary = shutil.which("paplay") if os.name == "posix" else None
+        self.directory = tempfile.TemporaryDirectory(prefix="webradio-sounds-")
+        self.process = None
+        self.last_played = 0
+        for name, frequency, duration in (("move", 880, 0.018), ("confirm", 1175, 0.035),
+                                          ("back", 660, 0.025)):
+            count = int(22050 * duration)
+            samples = array("h", (
+                int(1800 * math.sin(2 * math.pi * frequency * i / 22050)
+                    * math.sin(math.pi * i / count) ** 2)
+                for i in range(count)
+            ))
+            if sys.byteorder != "little":
+                samples.byteswap()
+            with wave.open(str(Path(self.directory.name) / f"{name}.wav"), "wb") as output:
+                output.setparams((1, 2, 22050, 0, "NONE", "not compressed"))
+                output.writeframes(samples.tobytes())
+
+    def play(self, name):
+        now = time.monotonic()
+        if (not self.binary or now - self.last_played < 0.07
+                or self.process is not None and self.process.poll() is None):
+            return
+        self.last_played = now
+        try:
+            self.process = subprocess.Popen(
+                [self.binary, str(Path(self.directory.name) / f"{name}.wav")],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            self.binary = None
+
+    def stop(self):
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=0.3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+
+    def close(self):
+        self.stop()
+        self.directory.cleanup()
 
 
 class PlaybackError(Exception):

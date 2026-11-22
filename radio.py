@@ -125,7 +125,11 @@ def main():
             from radio_device import run, system_volume
 
             volume_control = system_volume
-        app = RadioApp(directory, Library(data), args.demo, system_volume=volume_control)
+        from radio_player import OperationSound
+
+        sounds = OperationSound() if args.device else None
+        app = RadioApp(directory, Library(data), args.demo, system_volume=volume_control,
+                       operation_sound=sounds)
         signal.signal(signal.SIGTERM, lambda *_: setattr(app, "running", False))
         try:
             if args.device:

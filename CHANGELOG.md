@@ -1,5 +1,19 @@
 # WebRadio 更新日志 / Changelog
 
+## 1.0.12-1
+
+### 简体中文
+
+- 新增轻量操作音效，提供导航、确认和返回提示。
+- 帮助页按 4 开关音效，设置在重启后保留。
+- 代码以 MIT 协议开源，安装包附带许可证。
+
+### English
+
+- Added short navigation, confirmation, and back sounds.
+- Press 4 on the Controls screen to toggle sounds. The preference survives restarts.
+- Released the source code under MIT and included the license in the package.
+
 ## 1.0.11-1
 
 ### 简体中文

@@ -170,6 +170,33 @@ class PlayerTest(unittest.TestCase):
 
 
 class InteractionTest(unittest.TestCase):
+    def test_sound_toggle_survives_restart_and_other_preference_saves(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            from unittest.mock import Mock
+
+            sound = Mock()
+            app = RadioApp(None, Library(path), demo=True, operation_sound=sound)
+            try:
+                self.assertTrue(app.library.sound_enabled)
+                app.handle("h")
+                sound.play.assert_called_once_with("confirm")
+                app.handle("4")
+                sound.stop.assert_called_once()
+                self.assertFalse(Library(path).sound_enabled)
+                sound.play.reset_mock()
+                app.handle("8")
+                app.handle("h")
+                sound.play.assert_not_called()
+                app.library.save(app.library.favorites, 35)
+                self.assertFalse(Library(path).sound_enabled)
+                app.handle("4")
+                self.assertTrue(Library(path).sound_enabled)
+                app.handle("8")
+                sound.play.assert_called_once_with("back")
+            finally:
+                app.close()
+
     def wait_for_results(self, app):
         deadline = time.monotonic() + 2
         while app.loading and time.monotonic() < deadline:

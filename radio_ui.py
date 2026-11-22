@@ -109,9 +109,10 @@ class SearchOrigin:
 
 
 class RadioApp:
-    def __init__(self, directory, library, demo=False, system_volume=None):
+    def __init__(self, directory, library, demo=False, system_volume=None, operation_sound=None):
         self.directory = directory
         self.library = library
+        self.operation_sound = operation_sound
         self.demo = demo
         self.filters = self.query = library.filters
         self.page = 0
@@ -466,6 +467,21 @@ class RadioApp:
 
     def handle(self, key, char="", clear=False):
         self.dirty = True
+        if self.modal == "help" and key == "4":
+            try:
+                enabled = not self.library.sound_enabled
+                self.library.save(self.library.favorites, self.volume, sound_enabled=enabled)
+                if not enabled and self.operation_sound:
+                    self.operation_sound.stop()
+            except OSError:
+                self.notify("无法保存音效设置" if self.library.interface_language == "zh"
+                            else "Could not save sound preference")
+            return
+        if self.operation_sound and self.library.sound_enabled:
+            sound = "back" if key in ("escape", "8") else (
+                "move" if key in (*DIRECTIONS, "up", "down", "left", "right", "backspace")
+                or self.modal in ("search", "filter_text") and char else "confirm")
+            self.operation_sound.play(sound)
         if self.modal in ("search", "filter_text"):
             if len(key) == 2 and key[0] == "f" and key[1] in DIGIT_SHORTCUTS:
                 key, char = "", key[-1]
@@ -613,6 +629,8 @@ class RadioApp:
             self.save_volume()
         if self.system_volume_worker is not None:
             self.system_volume_worker.shutdown()
+        if self.operation_sound:
+            self.operation_sound.close()
         self.player.close()
 
 
@@ -724,7 +742,8 @@ class Screen:
                     y = 32 + i * 21
                     box((8, y, 311, y + 18), PANEL, 4)
                     text(15, y + 4, line, 12, TEXT, 289)
-                softkeys(("", "", t("语言", "Lang."), t("应用说明", "About"), t("返回", "Back")))
+                sound_label = t("音效开", "Snd On") if app.library.sound_enabled else t("音效关", "Snd Off")
+                softkeys((sound_label, "", t("语言", "Lang."), t("应用说明", "About"), t("返回", "Back")))
             elif app.modal == "about":
                 modal_title(t("应用说明", "About WebRadio"), BLUE)
                 text(9, 36, t("电台目录数据来自 Radio Browser。", "Station directory data comes from Radio Browser."))

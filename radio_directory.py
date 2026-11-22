@@ -161,6 +161,7 @@ class Library:
         self.volume = max(0, min(100, volume)) if type(volume) is int else 45
         self.filters = Query.from_filters(stored.get("filters"))
         self.interface_language = "en" if stored.get("interface_language") == "en" else "zh"
+        self.sound_enabled = stored.get("sound_enabled", True) is not False
         self.last_station = Station.parse(stored.get("last_station"), saved=True)
         rows = stored.get("favorites", [])
         self.favorites = {
@@ -169,25 +170,30 @@ class Library:
             if (station := Station.parse(row, saved=True))
         }
 
-    def save(self, favorites, volume, filters=None, interface_language=None, last_station=None):
+    def save(self, favorites, volume, filters=None, interface_language=None, last_station=None,
+             sound_enabled=None):
         if filters is None:
             filters = self.filters
         if interface_language is None:
             interface_language = self.interface_language
         if last_station is None:
             last_station = self.last_station
+        if sound_enabled is None:
+            sound_enabled = self.sound_enabled
         filter_data = {key: getattr(filters, key) for key in ("country", "language", "tag", "order")}
         write_json(self.path, {
             "favorites": [asdict(station) for station in favorites.values()],
             "volume": volume,
             "filters": filter_data,
             "interface_language": interface_language,
+            "sound_enabled": sound_enabled,
             "last_station": asdict(last_station) if last_station else None,
         })
         self.favorites = favorites
         self.volume = volume
         self.filters = Query.from_filters(filter_data)
         self.interface_language = interface_language
+        self.sound_enabled = sound_enabled
         self.last_station = last_station
 
     def toggle(self, station):
