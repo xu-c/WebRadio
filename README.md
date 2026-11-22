@@ -4,13 +4,19 @@ WebRadio 使用 MIT 开源许可。操作音效由应用生成。电台目录由
 
 适配 M5Stack Cardputer Zero 的 320×170 彩屏和内置键盘。电台目录由 [Radio Browser](https://www.radio-browser.info/) 提供，音频由设备上的 mpv 播放。
 
+## 切换界面语言 / Switch interface language
+
+在主界面按 `H` 打开帮助，再按 `6` 打开语言菜单。按 `4` 选简体中文，按 `5` 选 English。设置会自动保存。
+
+From the main screen, press `H` for Controls, then `6` for Language. Press `4` for Simplified Chinese or `5` for English. Your choice is saved automatically.
+
 ## 在 Cardputer Zero 上安装
 
-用 `python build_package.py` 生成安装包。把 `dist/cardputer-zero-radio_1.0.12-1_arm64.deb` 复制到已联网的 Cardputer Zero，在设备上进入安装包所在目录，执行：
+用 `python build_package.py` 生成安装包。把 `dist/cardputer-zero-radio_1.0.13-1_arm64.deb` 复制到已联网的 Cardputer Zero，在设备上进入安装包所在目录，执行：
 
 ```sh
 sudo apt update
-sudo apt install --no-install-recommends ./cardputer-zero-radio_1.0.12-1_arm64.deb
+sudo apt install --no-install-recommends ./cardputer-zero-radio_1.0.13-1_arm64.deb
 ```
 
 安装后，在 Cardputer Zero 的应用启动器里打开 **WebRadio**。旧版 Radio 可以直接升级，收藏和音量设置会保留。若使用自定义系统镜像，可用 `cardputer-zero-radio --framebuffer /dev/fb0 --keyboard /dev/input/eventX` 指定设备。画面倒置时加 `--rotate`。
@@ -48,7 +54,7 @@ Operation sounds are enabled by default. Press H, then 4 to toggle them. The pre
 
 首次打开默认浏览中国大陆电台。按 `5` 打开筛选后，用 `4` 清空筛选，或用 `5` 恢复默认，再按 `7` 应用。已应用的国家／地区、语言、类型和排序会在下次启动时恢复。
 
-界面默认使用简体中文。按 `H`、`6` 打开界面语言选项，按 `5` 切换到 English，按 `4` 切回简体中文。语言会自动保存。
+界面默认使用简体中文。
 
 ## 连接行为
 

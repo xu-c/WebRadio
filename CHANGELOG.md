@@ -1,5 +1,15 @@
 # WebRadio 更新日志 / Changelog
 
+## 1.0.13-1
+
+### 简体中文
+
+- GitHub 和商店介绍补充中英文界面切换步骤。
+
+### English
+
+- Added instructions for switching interface language to GitHub and the AppStore listing.
+
 ## 1.0.12-1
 
 ### 简体中文

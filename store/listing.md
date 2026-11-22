@@ -1,4 +1,4 @@
-# WebRadio · 1.0.12-1
+# WebRadio · 1.0.13-1
 
 License / 许可证 · MIT
 
@@ -11,6 +11,8 @@ Source / 源码 · https://github.com/xu-c/WebRadio
 在 Cardputer Zero 上发现、收藏和收听网络电台。
 
 **应用说明**
+
+**切换界面语言**　主界面按 H、6，再按 4 选简体中文，或按 5 选 English。设置会自动保存。
 
 用 Cardputer Zero 的内置键盘浏览全球网络电台。首次打开显示中国大陆电台，可按国家／地区、语言和类型筛选。支持英文台名、频率、呼号及中文全拼搜索，可在当前筛选范围内搜索，也可切换到全球。按 Q 即可继续收听上次成功播放的电台，播放栏会显示台名及电台流提供的节目或曲名。收藏、筛选、音量及简体中文／英文界面偏好均保存在设备上。
 
@@ -29,6 +31,8 @@ https://www.radio-browser.info/
 Browse, save, and listen to internet radio on Cardputer Zero.
 
 **Description**
+
+**Switch interface language**　From the main screen, press H, then 6. Press 4 for Simplified Chinese or 5 for English. Your choice is saved automatically.
 
 Explore internet radio with the Cardputer Zero keyboard. The first launch shows mainland China stations. Filter by country or region, language, and genre, or search the current selection or the worldwide directory. Search by English name, frequency, call sign, or full pinyin for Chinese station names. Press Q to resume your last successfully played station. The player displays the station and any program or track title supplied by the stream. Favorites, filters, volume, and the Simplified Chinese or English interface preference are saved on the device.
 
